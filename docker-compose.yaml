@@ -1,0 +1,51 @@
+version: '3.1'
+
+
+services:
+
+  users-db:
+    image: mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: users-service-db
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./orders-api/initdb.js:/docker-entrypoint-initdb.d/initdb.js
+
+  orders-db:
+    image: mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: orders-service-db
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./orders-api/initdb.js:/docker-entrypoint-initdb.d/initdb.js
+
+  accounnt_db:
+    image: mysql:5.6
+    restart: always
+    environment:
+      MYSQL_USER: admin
+      MYSQL_DATABASE: micro-db
+      MYSQL_PASSWORD: password
+      MYSQL_ROOT_PASSWORD: password
+    ports:
+      - "3306:3306"
+
+
+  rabbitmq3:
+    container_name: "rabbitmq"
+    image: rabbitmq:3.8-management-alpine
+    environment:
+      - RABBITMQ_DEFAULT_USER=myuser
+      - RABBITMQ_DEFAULT_PASS=mypassword
+    ports:
+      # AMQP protocol port
+      - '5672:5672'
+      # HTTP management UI
+      - '15672:15672'
+
