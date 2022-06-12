@@ -1,4 +1,3 @@
-
 // Package classification of Users API
 //
 // Documentation for Users API
@@ -18,102 +17,165 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strconv"
-	"vic/models"
 
+	"github.com/Victor-Ugwueze/go-microservices/users-api/models"
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // Hello is a simple handler
-type Hello struct {
+type UserModel struct {
 	l *log.Logger
-	Models *models.Models
+	C *mongo.Collection;
+}
+
+
+type Input struct {
+	ID      string `bson:"_id,omitempty"`
+	Name     string   `bson:"name,omitempty"`
+	Email    string          `bson:"email,omitempty"`
 }
 
 
 // NewHello creates a new hello handler with the given logger
-func Newusers(l *log.Logger, models *models.Models) (*Hello) {
-	return &Hello{l, models}
+func Newusers(l *log.Logger, C *mongo.Collection) (*UserModel) {
+	return &UserModel{l, C}
 }
 
 // NewHello creates a new hello handler with the given logger
-func list(rw http.ResponseWriter, h *Hello) {
+func list(rw http.ResponseWriter, um *UserModel) {
 		rw.Header().Set("Content-Type", "application/json")
-		res, _ := json.Marshal(h.Models.Users)
+		ctx := context.TODO()
+		allUsers := []models.User{}
+
+		userCursor, err := um.C.Find(ctx, bson.M{})
+
+		if err != nil {
+			http.Error(rw, "An Error occurred" ,http.StatusServiceUnavailable)
+			fmt.Println(err)
+			return
+		}
+
+		err = userCursor.All(ctx, &allUsers)
+
+				if err != nil {
+			http.Error(rw, "An Error " ,http.StatusServiceUnavailable)
+			return
+		}
+
+		res, err := json.Marshal(allUsers)
+
+
+		if err != nil {
+			http.Error(rw, "An Error " ,http.StatusServiceUnavailable)
+			return
+		}
 		// write the response
 		rw.Write(res)
 }
 
-func addUser(u *models.User, h *Hello, w io.Reader) error {
-	id := len(h.Models.Users)
-  u.ID = uint64(id + 1)
-	h.Models.Users = append(h.Models.Users, u)
-
-	return nil
+func addUser(user *models.User, um *UserModel) (primitive.ObjectID ,error) {
+	result, err := um.C.InsertOne(context.TODO(), user)
+	return result.InsertedID.(primitive.ObjectID), err
 }
 
 
 
-func create(rw http.ResponseWriter, r *http.Request, h *Hello)  {
-	val := r.Context().Value(KeyUser{}).(models.User)
-	var err = addUser(&val, h, r.Body)
+func create(rw http.ResponseWriter, r *http.Request, h *UserModel)  {
 	rw.Header().Set("Content-Type", "application/json")
-	
+	var u models.User
+
+	err := json.NewDecoder(r.Body).Decode(&u)
+
+	if err != nil {
+		http.Error(rw, "Server error" ,http.StatusServiceUnavailable)
+		return
+	}
+
+	var user models.User
+
+	fields := bson.D{
+		{Key: "_id", Value: 1},
+		{Key: "email", Value: 1},
+		{Key: "name", Value: 1 },
+	}
+
+
+	opts := options.FindOne()
+	opts.SetProjection(fields)
+
+
+  err = h.C.FindOne(context.TODO(), bson.M{"email": u.Email }, opts).Decode(&user)
+
+	fmt.Println(err, user)
 
 	if err != nil {
 		http.Error(rw, "Bad request" ,http.StatusServiceUnavailable)
 		return
 	}
-	err = val.ToJSON(rw)
+
+	 id, err := addUser(&u, h)
+	
+	if err != nil {
+		http.Error(rw, "Bad request" ,http.StatusServiceUnavailable)
+		return
+	}
+
+	result := models.User{ID: id, Name: u.Name, Email: u.Email }
+
+	err = json.NewEncoder(rw).Encode(result)
 
 	if err != nil {
 		http.Error(rw, "Unable to handle request" ,http.StatusServiceUnavailable)
 	}
 }
 
-func delete(id int, r *http.Request, rw http.ResponseWriter, h *Hello) {
+func delete(id int, r *http.Request, rw http.ResponseWriter, h *UserModel) {
 
-	index, err := findProduct(h.Models, id)
+	// index, err := findProduct(h.Models, id)
 
-	if err != nil  {
-		http.NotFound(rw, r)
-		return
-	}
-	h.Models.Users = append(h.Models.Users[:index], h.Models.Users[index+1:]...)
+	// if err != nil  {
+	// 	http.NotFound(rw, r)
+	// 	return
+	// }
+	// h.Models.Users = append(h.Models.Users[:index], h.Models.Users[index+1:]...)
 }
 
-func findProduct(models *models.Models, id int)(int, error) {
-	for index, u := range models.Users {
-		if id == int(u.ID) {
-			return index, nil
-		}
-	}
+func findProduct(h UserModel, id int)(int, error) {
+	// for index, u := range models.Users {
+	// 	if id == int(u.ID) {
+	// 		return index, nil
+	// 	}
+	// }
 	return -1, fmt.Errorf("User not found")
 }
 
-func update(id int, r *http.Request, rw http.ResponseWriter, h *Hello) {
+func update(id int, r *http.Request, rw http.ResponseWriter, h *UserModel) {
 	rw.Header().Set("Content-Type", "application/json")
-	val := r.Context().Value(KeyUser{}).(models.User)
+	// val := r.Context().Value(KeyUser{}).(models.User)
 
-  index, err := findProduct(h.Models, id)
+  // index, err := findProduct(h.Models, id)
 
-	if err != nil  {
-		http.NotFound(rw, r)
-		return
-	}
+	// if err != nil  {
+	// 	http.NotFound(rw, r)
+	// 	return
+	// }
 
-	val.ID = uint64(id)
-	h.Models.Users[index] = &val
-	val.ToJSON(rw)
+	// val.ID = uint64(id)
+	// h.Models.Users[index] = &val
+	// val.ToJSON(rw)
 
 }
 
 // ServeHTTP implements the go http.Handler interface
 // https://golang.org/pkg/net/http/#Handler
-func (h *Hello) ListUsers(rw http.ResponseWriter, r *http.Request) {
+func (h *UserModel) ListUsers(rw http.ResponseWriter, r *http.Request) {
 	h.l.Println("requests", r.URL.Path)
 	list(rw, h)
 }
@@ -121,7 +183,7 @@ func (h *Hello) ListUsers(rw http.ResponseWriter, r *http.Request) {
 
 // ServeHTTP implements the go http.Handler interface
 // https://golang.org/pkg/net/http/#Handler
-func (h *Hello) UpdateUsers(rw http.ResponseWriter, r *http.Request) {
+func (h *UserModel) UpdateUsers(rw http.ResponseWriter, r *http.Request) {
 	h.l.Println("requests", r.URL.Path)
 	vars := mux.Vars(r)
 
@@ -140,7 +202,7 @@ func (h *Hello) UpdateUsers(rw http.ResponseWriter, r *http.Request) {
 
 // ServeHTTP implements the go http.Handler interface
 // https://golang.org/pkg/net/http/#Handler
-func (h *Hello) CreateUsers(rw http.ResponseWriter, r *http.Request) {
+func (h *UserModel) CreateUsers(rw http.ResponseWriter, r *http.Request) {
 	h.l.Println("requests", r.URL.Path)
 	create(rw, r, h)
 }
@@ -148,7 +210,7 @@ func (h *Hello) CreateUsers(rw http.ResponseWriter, r *http.Request) {
 
 // ServeHTTP implements the go http.Handler interface
 // https://golang.org/pkg/net/http/#Handler
-func (h *Hello) DeleteUsers(rw http.ResponseWriter, r *http.Request) {
+func (h *UserModel) DeleteUsers(rw http.ResponseWriter, r *http.Request) {
 	h.l.Println("requests", r.URL.Path)
 	vars := mux.Vars(r)
 
@@ -166,7 +228,7 @@ func (h *Hello) DeleteUsers(rw http.ResponseWriter, r *http.Request) {
 	type KeyUser struct {}
 
 
-	func(h *Hello) ValidateUserData(next http.Handler) http.Handler {
+	func(h *UserModel) ValidateUserData(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 			user := &models.User{}
 			e := json.NewDecoder(r.Body)
