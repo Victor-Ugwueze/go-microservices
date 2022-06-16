@@ -12,6 +12,7 @@ import (
 	"github.com/Victor-Ugwueze/go-microservices/users-api/handlers"
 	"github.com/Victor-Ugwueze/go-microservices/users-api/models"
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -30,8 +31,13 @@ type application struct {
 
 func main() {
 
-	l := log.New(os.Stdout, "prod-api ", log.LstdFlags)
+	l := log.New(os.Stdout, "users-service-api ", log.LstdFlags)
 
+  err := godotenv.Load()
+
+  if err != nil {
+    l.Fatal("Error loading .env file")
+  }
 
 	mongoURI := flag.String("mongoURI", "mongodb://root:password@localhost:27017", "Database hostname url")
 	serverAddr := flag.String("serverAddr", "localhost", "Network address")
@@ -46,7 +52,7 @@ func main() {
 	client, err := mongo.NewClient(co)
 
 	if err != nil {
-		l.Fatal(err, "wwww")
+		l.Fatal(err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2 * time.Second)
@@ -56,7 +62,7 @@ func main() {
 	err = client.Connect(ctx)
 
 	if err != nil {
-		l.Fatal(err, "nexy")
+		l.Fatal(err)
 	}
 
 
@@ -66,7 +72,7 @@ func main() {
 		}
 	}()
 
-fmt.Println(err)
+	fmt.Println(err)
 
 
 	serverURI := fmt.Sprintf("%s:%d", *serverAddr, *serverPort)
@@ -79,7 +85,6 @@ fmt.Println(err)
 	getRouter := sm.Methods(http.MethodGet).Subrouter()
 	postRouter := sm.Methods(http.MethodPost).Subrouter()
 	putRouter := sm.Methods(http.MethodPut).Subrouter()
-	deleteRouter := sm.Methods(http.MethodDelete).Subrouter()
 
 
 	uh := handlers.Newusers(l, client.Database("users-service-db").Collection("users"))
@@ -88,13 +93,18 @@ fmt.Println(err)
 	getRouter.HandleFunc("/users", uh.ListUsers)
 
 
-	postRouter.HandleFunc("/users", uh.CreateUsers)
-	// postRouter.Use(uh.ValidateUserData)
+	signUp := postRouter.PathPrefix("/auth/signup").Subrouter()
+
+
+	signUp.HandleFunc("/auth/signup", uh.Signup)
+	signUp.Use(uh.ValidateUserData)
+
+	postRouter.HandleFunc("/auth/login", uh.Login)
+
+
 
 	putRouter.HandleFunc("/users/{id:[0-9]+}", uh.UpdateUsers)
 	putRouter.Use(uh.ValidateUserData)
 	
-	deleteRouter.HandleFunc("/users/{id:[0-9]+}", uh.DeleteUsers)
-
 	http.ListenAndServe(serverURI, sm)
 }

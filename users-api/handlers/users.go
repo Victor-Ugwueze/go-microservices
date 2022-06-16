@@ -21,12 +21,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Victor-Ugwueze/go-microservices/users-api/helpers"
 	"github.com/Victor-Ugwueze/go-microservices/users-api/models"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // Hello is a simple handler
@@ -35,13 +35,20 @@ type UserModel struct {
 	C *mongo.Collection;
 }
 
+type KeyUser struct {}
 
-type Input struct {
-	ID      string `bson:"_id,omitempty"`
-	Name     string   `bson:"name,omitempty"`
-	Email    string          `bson:"email,omitempty"`
+
+
+type AuthResponse struct {
+	User models.User `json:"user"`
+	Token string     `json:"token"`
 }
 
+
+type LoginRequest struct {
+	Email     string     `json:"email"`
+	Password  string     `json:"password"`
+}
 
 // NewHello creates a new hello handler with the given logger
 func Newusers(l *log.Logger, C *mongo.Collection) (*UserModel) {
@@ -65,96 +72,159 @@ func list(rw http.ResponseWriter, um *UserModel) {
 		err = userCursor.All(ctx, &allUsers)
 
 				if err != nil {
-			http.Error(rw, "An Error " ,http.StatusServiceUnavailable)
+			http.Error(rw, "An Error ocurred" ,http.StatusServiceUnavailable)
 			return
 		}
 
 		res, err := json.Marshal(allUsers)
 
-
 		if err != nil {
 			http.Error(rw, "An Error " ,http.StatusServiceUnavailable)
 			return
 		}
-		// write the response
 		rw.Write(res)
 }
 
-func addUser(user *models.User, um *UserModel) (primitive.ObjectID ,error) {
-	result, err := um.C.InsertOne(context.TODO(), user)
-	return result.InsertedID.(primitive.ObjectID), err
+
+
+func findUserByEmail(email string, h *UserModel) (*models.User, error) {
+	result := h.C.FindOne(context.TODO(), bson.M{"email": email })
+
+	var u = &models.User{}
+
+	err := result.Decode(u)
+
+	if err != nil {
+		return u, err
+	}
+	return u, nil
 }
 
 
+func create(u *models.User, rw http.ResponseWriter, h *UserModel) (error)  {
+	var err = u.HashPassword()
+	result, err := h.C.InsertOne(context.TODO(), u)
+	if err != nil {
+		return err
+	}
+	u.ID = result.InsertedID.(primitive.ObjectID)
+	return  nil
+}
 
-func create(rw http.ResponseWriter, r *http.Request, h *UserModel)  {
+
+func checkEmailExists(u *models.User, h *UserModel) (bool, error) {
+	count, err := h.C.CountDocuments(context.TODO(), bson.M{"email": u.Email })
+
+	if err != nil {
+		return false, err
+	}
+	if count > 0 {
+		return true, nil
+	} else {
+		return false, nil
+	}
+}
+
+
+// ServeHTTP implements the go http.Handler interface
+// https://golang.org/pkg/net/http/#Handler
+func (h *UserModel) Signup(rw http.ResponseWriter, r *http.Request) {
+	h.l.Println("requests", r.URL.Path)
+
+	user := r.Context().Value(KeyUser{}).(*models.User)
+
+	userFound, err := checkEmailExists(user, h)
+
+	if err != nil {
+		http.Error(rw, "Unable to handle request" ,http.StatusInternalServerError)
+		return
+	}
+
+	if userFound {
+		http.Error(rw, "Email already exists", http.StatusConflict)
+		return
+	}
+
+	 err = create(user, rw, h)
+
+	 if err != nil {
+		http.Error(rw, "Unable to handle request" ,http.StatusInternalServerError)
+		return
+	}
+
+	token, err := helpers.GenerateJwtToken(helpers.Payload{ ID: user.ID, Email: user.Email })
+
+	if err != nil {
+		http.Error(rw, "Unable to handle request" ,http.StatusInternalServerError)
+		return
+	}
+
+
+  user.Password = ""
+	json.NewEncoder(rw).Encode(AuthResponse{ User: *user, Token: token})
+
+	if err != nil {
+		http.Error(rw, "Unable to handle request" ,http.StatusInternalServerError)
+		return
+	}
+}
+
+
+// ServeHTTP implements the go http.Handler interface
+// https://golang.org/pkg/net/http/#Handler
+func (h *UserModel) Login(rw http.ResponseWriter, r *http.Request) {
+	h.l.Println("requests", r.URL.Path)
 	rw.Header().Set("Content-Type", "application/json")
-	var u models.User
 
-	err := json.NewDecoder(r.Body).Decode(&u)
+	var payload  = LoginRequest{}
+
+	err := json.NewDecoder(r.Body).Decode(&payload)
+
 
 	if err != nil {
-		http.Error(rw, "Server error" ,http.StatusServiceUnavailable)
+		http.Error(rw, "Unable to handle request" ,http.StatusUnauthorized)
 		return
 	}
 
-	var user models.User
-
-	fields := bson.D{
-		{Key: "_id", Value: 1},
-		{Key: "email", Value: 1},
-		{Key: "name", Value: 1 },
-	}
-
-
-	opts := options.FindOne()
-	opts.SetProjection(fields)
-
-
-  err = h.C.FindOne(context.TODO(), bson.M{"email": u.Email }, opts).Decode(&user)
-
-	fmt.Println(err, user)
+	user, err := findUserByEmail(payload.Email, h)
 
 	if err != nil {
-		http.Error(rw, "Bad request" ,http.StatusServiceUnavailable)
+		http.Error(rw, "Authentication failed" ,http.StatusUnauthorized)
 		return
 	}
 
-	 id, err := addUser(&u, h)
-	
+	err = user.ComparePassword(payload.Password)
+
 	if err != nil {
-		http.Error(rw, "Bad request" ,http.StatusServiceUnavailable)
+		http.Error(rw, "Authentication failed" ,http.StatusUnauthorized)
 		return
 	}
 
-	result := models.User{ID: id, Name: u.Name, Email: u.Email }
 
-	err = json.NewEncoder(rw).Encode(result)
+	token, err := helpers.GenerateJwtToken(helpers.Payload{ID: user.ID, Email: user.Email })
+
+	 if err != nil {
+		http.Error(rw, "Unable to handle request" ,http.StatusInternalServerError)
+		return
+	}
+
 
 	if err != nil {
-		http.Error(rw, "Unable to handle request" ,http.StatusServiceUnavailable)
+		http.Error(rw, "Unable to handle request" ,http.StatusInternalServerError)
+		return
+	}
+
+	user.Password = ""
+	json.NewEncoder(rw).Encode(AuthResponse{ User: *user, Token: token})
+
+	if err != nil {
+		http.Error(rw, "Unable to handle request" ,http.StatusInternalServerError)
+		return
 	}
 }
 
-func delete(id int, r *http.Request, rw http.ResponseWriter, h *UserModel) {
 
-	// index, err := findProduct(h.Models, id)
 
-	// if err != nil  {
-	// 	http.NotFound(rw, r)
-	// 	return
-	// }
-	// h.Models.Users = append(h.Models.Users[:index], h.Models.Users[index+1:]...)
-}
-
-func findProduct(h UserModel, id int)(int, error) {
-	// for index, u := range models.Users {
-	// 	if id == int(u.ID) {
-	// 		return index, nil
-	// 	}
-	// }
-	return -1, fmt.Errorf("User not found")
-}
 
 func update(id int, r *http.Request, rw http.ResponseWriter, h *UserModel) {
 	rw.Header().Set("Content-Type", "application/json")
@@ -200,36 +270,10 @@ func (h *UserModel) UpdateUsers(rw http.ResponseWriter, r *http.Request) {
 
 
 
-// ServeHTTP implements the go http.Handler interface
-// https://golang.org/pkg/net/http/#Handler
-func (h *UserModel) CreateUsers(rw http.ResponseWriter, r *http.Request) {
-	h.l.Println("requests", r.URL.Path)
-	create(rw, r, h)
-}
-
-
-// ServeHTTP implements the go http.Handler interface
-// https://golang.org/pkg/net/http/#Handler
-func (h *UserModel) DeleteUsers(rw http.ResponseWriter, r *http.Request) {
-	h.l.Println("requests", r.URL.Path)
-	vars := mux.Vars(r)
-
-	id, err := strconv.Atoi(vars["id"])
-
-	if err != nil {
-		http.Error(rw, "Unable to pass id", http.StatusBadRequest)
-		return
-	}
-	
-		delete(id, r, rw, h)
-	}
-
-
-	type KeyUser struct {}
-
-
 	func(h *UserModel) ValidateUserData(next http.Handler) http.Handler {
+
 		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			rw.Header().Set("Content-Type", "application/json")
 			user := &models.User{}
 			e := json.NewDecoder(r.Body)
 			var err = e.Decode(user)
@@ -252,3 +296,4 @@ func (h *UserModel) DeleteUsers(rw http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(rw, r)
 		})
 	}
+	
