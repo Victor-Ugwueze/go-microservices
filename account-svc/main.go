@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Victor-Ugwueze/go-microservices/users-api/handlers"
@@ -20,7 +22,7 @@ import (
 
 
 func Welcome(wr http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(wr, "Welcome")
+	fmt.Fprintf(wr, "Welcome here")
 }
 
 type application struct {
@@ -93,18 +95,44 @@ func main() {
 	getRouter.HandleFunc("/users", uh.ListUsers)
 
 
-	signUp := postRouter.PathPrefix("/auth/signup").Subrouter()
 
+	signUp := postRouter.PathPrefix("/signup").Subrouter()
 
-	signUp.HandleFunc("/auth/signup", uh.Signup)
+	signUp.HandleFunc("/me", uh.Signup)
 	signUp.Use(uh.ValidateUserData)
 
-	postRouter.HandleFunc("/auth/login", uh.Login)
+	postRouter.HandleFunc("/login", uh.Login)
 
 
 
 	putRouter.HandleFunc("/users/{id:[0-9]+}", uh.UpdateUsers)
 	putRouter.Use(uh.ValidateUserData)
+
+	s := http.Server{
+		Addr: serverURI,
+		Handler: sm,
+		IdleTimeout: 120 * time.Second,
+		ReadTimeout: 1 * time.Second,
+		WriteTimeout: 1 * time.Second,
+	}
 	
-	http.ListenAndServe(serverURI, sm)
+	go func ()  {
+		err = s.ListenAndServe()
+		if err != nil {
+			l.Fatal("Server failed to start")
+		}
+	} ()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, syscall.SIGTERM)
+
+	sig := <- sigChan
+
+	l.Println("Received kill signal", sig)
+	
+	ct, cancel := context.WithTimeout(context.Background(), 30 * time.Second)
+	defer cancel()
+
+	s.Shutdown(ct)
 }

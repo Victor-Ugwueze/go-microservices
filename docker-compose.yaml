@@ -3,7 +3,7 @@ version: '3.1'
 
 services:
 
-  users-db:
+  users-db: &mongo-db-spec
     image: mongo
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
@@ -12,18 +12,16 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      - ./orders-api/initdb.js:/docker-entrypoint-initdb.d/initdb.js
+      - ./account-svc/initdb.js:/docker-entrypoint-initdb.d/initdb.js
 
   orders-db:
-    image: mongo
+    <<: *mongo-db-spec
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: password
       MONGO_INITDB_DATABASE: orders-service-db
     ports:
-      - "27017:27017"
+      - "27018:27017"
     volumes:
-      - ./orders-api/initdb.js:/docker-entrypoint-initdb.d/initdb.js
+      - ./orders-scv/initdb.js:/docker-entrypoint-initdb.d/initdb.js
 
   accounnt_db:
     image: mysql:5.6
