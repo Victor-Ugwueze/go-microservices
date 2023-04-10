@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Victor-Ugwueze/go-microservices/users-api/handlers"
-	"github.com/Victor-Ugwueze/go-microservices/users-api/models"
+	"github.com/Victor-Ugwueze/go-microservices/account-service/handlers"
+	"github.com/Victor-Ugwueze/go-microservices/account-service/models"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -43,7 +43,7 @@ func main() {
 
 	mongoURI := flag.String("mongoURI", "mongodb://root:password@localhost:27017", "Database hostname url")
 	serverAddr := flag.String("serverAddr", "localhost", "Network address")
-	serverPort := flag.Int("serverPort", 9090, "Port")
+	serverPort := flag.Int("serverPort", 9091, "Port")
 
 	co := options.Client().ApplyURI(*mongoURI)
 
@@ -96,13 +96,10 @@ func main() {
 
 
 
-	signUp := postRouter.PathPrefix("/signup").Subrouter()
+	createUser := postRouter.PathPrefix("/create").Subrouter()
 
-	signUp.HandleFunc("/me", uh.Signup)
-	signUp.Use(uh.ValidateUserData)
-
-	postRouter.HandleFunc("/login", uh.Login)
-
+	createUser.HandleFunc("/me", uh.Signup)
+	createUser.Use(uh.ValidateUserData)
 
 
 	putRouter.HandleFunc("/users/{id:[0-9]+}", uh.UpdateUsers)
@@ -117,6 +114,7 @@ func main() {
 	}
 	
 	go func ()  {
+		l.Printf("Server running on port %s", s.Addr)
 		err = s.ListenAndServe()
 		if err != nil {
 			l.Fatal("Server failed to start")

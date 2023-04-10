@@ -49,8 +49,6 @@ func main() {
 	product.RegisterService(sm, c)
 	order.RegisterService(sm, c)
 
-	http.ListenAndServe(c.Port, sm)
-
 	s := http.Server {
 		Addr: c.Port,
 		IdleTimeout: 120 * time.Second,
@@ -61,10 +59,12 @@ func main() {
 
 
 	go func ()  {
+		log.Printf("Server running on port %s", s.Addr)
 		err = 	s.ListenAndServe()
 		if err != nil {
 			log.Fatal("Failed to server")
 		}
+		println("Hello", &s)
 	}()
 
 

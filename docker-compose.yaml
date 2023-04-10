@@ -13,7 +13,8 @@ services:
       - "27017:27017"
     volumes:
       - ./account-svc/initdb.js:/docker-entrypoint-initdb.d/initdb.js
-
+    logging: 
+      driver: none
   orders-db:
     <<: *mongo-db-spec
     environment:
@@ -22,9 +23,10 @@ services:
       - "27018:27017"
     volumes:
       - ./orders-scv/initdb.js:/docker-entrypoint-initdb.d/initdb.js
-
+    logging:
+      driver: none
   accounnt_db:
-    image: mysql:5.6
+    image: mysql:5.7
     restart: always
     environment:
       MYSQL_USER: admin
@@ -33,6 +35,8 @@ services:
       MYSQL_ROOT_PASSWORD: password
     ports:
       - "3306:3306"
+    logging:
+      driver: none
 
 
   rabbitmq3:
@@ -46,4 +50,69 @@ services:
       - '5672:5672'
       # HTTP management UI
       - '15672:15672'
+    logging:
+      driver: none
 
+
+  kong-database:
+    image: postgres:13
+    restart: on-failure
+    environment:
+      POSTGRES_USER: kong
+      POSTGRES_DB: kong
+      # If the POSTGRES_PASSWORD environment variable is not set,
+      # the container will generate a random strong password.
+      POSTGRES_PASSWORD: kongpass
+    volumes:
+      - kong:/usr/local/var/lib/postgresql
+    networks:
+      - kong-network
+    ports:
+      - 5438:5432
+
+  kong-migration:
+    image: kong/kong-gateway:3.2.2.1
+    restart: on-failure
+    command: kong migrations bootstrap
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kongpass
+    networks:
+      - kong-network
+    depends_on:
+      - kong-database
+  
+  kong_api_gateway:
+    image: kong/kong-gateway:3.2.2.1
+    restart: on-failure
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+      - "8443:8443"
+      - "8444:8444"
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kongpass
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001, 0.0.0.0:8444 ssl
+      KONG_ADMIN_GUI_URL: http://localhost:8000
+    networks:
+      - kong-network
+    depends_on:
+      - kong-database
+      - kong-migration
+
+networks:
+  kong-network:
+    driver: bridge
+
+volumes:
+  kong:
+  postgres-data:

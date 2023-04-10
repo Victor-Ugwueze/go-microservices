@@ -16,5 +16,5 @@ func RegisterService(r *mux.Router, c config.Config) {
 	if err != nil {
 		log.Fatal("Unable to pass account service url")
 	}
-	r.HandleFunc("/account/{rest}", 	helpers.RegisterProxyService(url))
+	r.HandleFunc("/account", 	helpers.RegisterProxyService(url))
 }
